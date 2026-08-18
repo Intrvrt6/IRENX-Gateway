@@ -11,9 +11,14 @@ interface Env {
   TURNSTILE_SECRET_KEY?: string;
   TURNSTILE_SITEKEY?: string;
   ENFORCE_TURNSTILE?: string;
+  ACCESS_AUD?: string;
+  ACCESS_JWKS_URL?: string;
+  ENFORCE_ACCESS?: string;
 }
 
 const MAX_BODY = 256_000;
+const DEFAULT_ACCESS_AUD = "0b57d4a3d00d76233203854c8fca80b3a60fe7193a5d26684d3f5366bd0b1115";
+const DEFAULT_ACCESS_JWKS = "https://evanescet.cloudflareaccess.com/cdn-cgi/access/certs";
 
 function json(data: unknown, status = 200, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...extra } });
@@ -45,6 +50,22 @@ async function verifyTurnstile(request: Request, env: Env) {
     return ((await response.json()) as { success?: boolean }).success === true;
   } catch {
     return false;
+  }
+}
+
+async function verifyAccess(request: Request, env: Env) {
+  if (env.ENFORCE_ACCESS !== "true") return { ok: true as const };
+  const token = request.headers.get("CF-Access-Jwt-Assertion");
+  if (!token) return { ok: false as const, status: 401, message: "Missing Access identity" };
+
+  try {
+    const jose = await import("jose");
+    const jwksUrl = new URL(env.ACCESS_JWKS_URL || DEFAULT_ACCESS_JWKS);
+    const jwks = jose.createRemoteJWKSet(jwksUrl);
+    const { payload } = await jose.jwtVerify(token, jwks, { audience: env.ACCESS_AUD || DEFAULT_ACCESS_AUD });
+    return { ok: true as const, payload };
+  } catch {
+    return { ok: false as const, status: 401, message: "Invalid Access identity" };
   }
 }
 
@@ -88,7 +109,7 @@ async function ai(env: Env, body: any, chatCompat = false) {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const cors = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type,authorization,cf-turnstile-response" };
+    const cors = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type,authorization,cf-turnstile-response,cf-access-jwt-assertion" };
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
 
     const protectedEndpoint = url.pathname.startsWith("/v1/") || url.pathname === "/api/ai";
@@ -96,11 +117,13 @@ export default {
       const limit = await rateLimit(request, env);
       if (!limit.allowed) return json({ error: { message: "Rate limit exceeded", type: "rate_limit" }, retry_after: limit.retry_after || 60 }, 429, { ...cors, "retry-after": String(limit.retry_after || 60) });
       if (request.method !== "POST" && url.pathname !== "/v1/models") return json({ error: { message: "Method not allowed" } }, 405, cors);
+      const access = await verifyAccess(request, env);
+      if (!access.ok) return json({ error: { message: access.message, type: "access_required" } }, access.status, cors);
       if (request.method === "POST" && !(await verifyTurnstile(request, env))) return json({ error: { message: "Turnstile verification required", type: "challenge_required" } }, 403, cors);
     }
 
-    if (url.pathname === "/api/health") return json({ ok: true, service: "irenx-gateway", openai: !!env.OPENAI_API_KEY, omniroute: !!env.OMNIROUTE_BASE_URL, zero_config_client: true, persistent_rate_limit: true, turnstile_enforced: env.ENFORCE_TURNSTILE === "true" });
-    if (url.pathname === "/api/config") return json({ turnstile_sitekey: env.TURNSTILE_SITEKEY || "", turnstile_required: env.ENFORCE_TURNSTILE === "true" }, 200, cors);
+    if (url.pathname === "/api/health") return json({ ok: true, service: "irenx-gateway", openai: !!env.OPENAI_API_KEY, omniroute: !!env.OMNIROUTE_BASE_URL, zero_config_client: true, persistent_rate_limit: true, turnstile_enforced: env.ENFORCE_TURNSTILE === "true", access_enforced: env.ENFORCE_ACCESS === "true" });
+    if (url.pathname === "/api/config") return json({ turnstile_sitekey: env.TURNSTILE_SITEKEY || "", turnstile_required: env.ENFORCE_TURNSTILE === "true", access_required: env.ENFORCE_ACCESS === "true" }, 200, cors);
     if (url.pathname === "/v1/models") return json({ object: "list", data: [{ id: "irenx-auto", object: "model", owned_by: "irenx" }, { id: env.OPENAI_MODEL || "gpt-5.6", object: "model", owned_by: "openai" }] }, 200, cors);
 
     if (url.pathname === "/v1/responses" || url.pathname === "/api/ai") {
