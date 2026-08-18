@@ -1,3 +1,5 @@
+export { RateLimiter } from "./rate_limiter";
+
 interface Env {
   ASSETS: Fetcher;
   RATE_LIMITER: DurableObjectNamespace;
