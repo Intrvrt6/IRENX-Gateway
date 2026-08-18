@@ -11,7 +11,10 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    # Set repository variable IRENX_RUNNER_LABEL to the GitHub larger-runner
+    # label attached to the Azure VNET private-network configuration.
+    # Until that configuration exists, fall back to the standard runner.
+    runs-on: ${{ vars.IRENX_RUNNER_LABEL || 'ubuntu-latest' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -84,5 +87,6 @@ jobs:
         if: success()
         run: |
           echo "IRENX Gateway production deployment verified."
+          echo "Runner: ${{ vars.IRENX_RUNNER_LABEL || 'ubuntu-latest' }}"
           echo "Health: $GATEWAY_URL/api/health"
           echo "Models: $GATEWAY_URL/v1/models"
