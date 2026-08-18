@@ -14,6 +14,10 @@ OMNIROUTE_BASE_URL = ""
 TURNSTILE_SITEKEY = ""
 ENFORCE_TURNSTILE = "false"
 
+[[routes]]
+pattern = "gateway.irenx.com"
+custom_domain = true
+
 [[durable_objects.bindings]]
 name = "RATE_LIMITER"
 class_name = "RateLimiter"
