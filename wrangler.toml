@@ -13,6 +13,9 @@ OPENAI_SEARCH_CONTEXT = "medium"
 OMNIROUTE_BASE_URL = ""
 TURNSTILE_SITEKEY = ""
 ENFORCE_TURNSTILE = "false"
+ENFORCE_ACCESS = "true"
+ACCESS_AUD = "0b57d4a3d00d76233203854c8fca80b3a60fe7193a5d26684d3f5366bd0b1115"
+ACCESS_JWKS_URL = "https://evanescet.cloudflareaccess.com/cdn-cgi/access/certs"
 
 [[routes]]
 pattern = "gateway.irenx.com"
